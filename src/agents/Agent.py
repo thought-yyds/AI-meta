@@ -5,10 +5,11 @@ from __future__ import annotations
 import json
 import logging
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from langchain.tools import BaseTool
-from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 
 try:
     from ..llm.chat_model import DoubaoChatModel
@@ -18,6 +19,7 @@ except ImportError:
     from llm.client import DoubaoService, DoubaoServiceError
 try:
     from tools import (
+        CalendarTool,
         EmailSenderTool,
         FileParserTool,
         GitHubRepoTool,
@@ -29,6 +31,7 @@ try:
     )
 except ImportError:
     from ..tools import (
+        CalendarTool,
         EmailSenderTool,
         FileParserTool,
         GitHubRepoTool,
@@ -58,6 +61,8 @@ class AgentStep:
     action_input: Optional[Dict[str, Any]] = None
     observation: Optional[Dict[str, Any]] = None
     final_answer: Optional[str] = None
+    timestamp: Optional[str] = None  # ISO format timestamp
+    context_info: Optional[Dict[str, Any]] = None  # Additional context like current time, etc.
 
 
 @dataclass
@@ -102,6 +107,7 @@ class Agent:
             TavilyWebTool(context=ToolContext(working_dir=working_dir)),
             GitHubRepoTool(context=ToolContext(working_dir=working_dir)),
             EmailSenderTool(context=ToolContext(working_dir=working_dir)),
+            CalendarTool(context=ToolContext(working_dir=working_dir)),
         ]
 
     def _get_tool_names(self) -> str:
@@ -195,17 +201,35 @@ class Agent:
         )
         return SystemMessage(content=prompt)
 
-    def run(self, task: str, *, context: Optional[str] = None) -> AgentResult:
+    def run(self, task: str, *, context: Optional[str] = None, conversation_history: Optional[List[Dict[str, str]]] = None) -> AgentResult:
+        """
+        Run the agent with a task.
+        
+        Args:
+            task: The task description
+            context: Optional additional context
+            conversation_history: Optional list of previous messages in format [{"role": "user/assistant", "content": "..."}]
+        """
         user_input = f"任务：\n{task.strip()}"
         if context:
             user_input += f"\n\n附加上下文信息：\n{context.strip()}"
 
         result = AgentResult(task=task)
 
-        messages: List[Any] = [
-            self._system_message,
-            HumanMessage(content=user_input),
-        ]
+        messages: List[Any] = [self._system_message]
+        
+        # Add conversation history if provided
+        if conversation_history:
+            for msg in conversation_history:
+                role = msg.get("role", "user")
+                content = msg.get("content", "")
+                if role == "user":
+                    messages.append(HumanMessage(content=content))
+                elif role == "assistant":
+                    messages.append(AIMessage(content=content))
+        
+        # Add current user message
+        messages.append(HumanMessage(content=user_input))
 
         reminder_added = False
         for iteration in range(self.config.max_iterations):
@@ -237,10 +261,21 @@ class Agent:
                     tool_name = tool_call.get("name")
                     tool_args = tool_call.get("args", {}) or {}
                     tool_call_id = tool_call.get("id") or ""
+                    
+                    # Get current time and context info
+                    current_time = datetime.now()
+                    context_info = {
+                        "current_time": current_time.isoformat(),
+                        "current_time_readable": current_time.strftime("%Y-%m-%d %H:%M:%S"),
+                        "working_dir": self.config.working_dir,
+                    }
+                    
                     step = AgentStep(
                         thought=ai_message.content or "模型选择调用工具",
                         action=tool_name,
                         action_input=tool_args if isinstance(tool_args, dict) else {"text": str(tool_args)},
+                        timestamp=current_time.isoformat(),
+                        context_info=context_info,
                     )
 
                     tool = self._get_tool_by_name(tool_name)

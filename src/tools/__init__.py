@@ -1,6 +1,7 @@
 """Tool implementations available to agents."""
 
 from .base import ContextAwareTool, ToolContext, ToolExecutionError
+from .calendar import CalendarTool
 from .github import GitHubRepoTool
 from .mailtool import EmailSenderTool
 from .parser import FileParserTool
@@ -18,5 +19,6 @@ __all__ = [
     "TavilyWebTool",
     "GitHubRepoTool",
     "EmailSenderTool",
+    "CalendarTool",
 ]
 

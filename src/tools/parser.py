@@ -35,8 +35,16 @@ class FileParserTool(ContextAwareTool):
     _TEXT_EXTENSIONS: ClassVar[Set[str]] = {".txt", ".md", ".markdown"}
 
     def _run(self, path: str, max_sections: Optional[int] = None) -> str:
-        working_dir = Path(self.context.working_dir or Path.cwd())
-        file_path = (working_dir / path).resolve()
+        # Support both absolute paths and relative paths
+        path_obj = Path(path)
+        if path_obj.is_absolute():
+            # If absolute path is provided, use it directly
+            # This allows users to access files outside the working directory
+            file_path = path_obj.resolve()
+        else:
+            # If relative path, resolve relative to working_dir
+            working_dir = Path(self.context.working_dir or Path.cwd())
+            file_path = (working_dir / path).resolve()
 
         if not file_path.exists():
             raise ToolExecutionError(f"File not found: {file_path}")
