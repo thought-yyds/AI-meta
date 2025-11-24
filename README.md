@@ -1,6 +1,6 @@
 # AI Meta Chat Application
 
-一个基于 FastAPI 和 Vue 3 的智能聊天应用，集成了 AI Agent 和记忆总结功能。
+一个结合 FastAPI、Vue 3、Doubao LLM、WindowsMCP 桌面自动化工具以及自研 Agent 工具链的智能聊天应用，提供会话记忆、任务拆解、桌面操控与多步推理的完整体验。
 
 ## 项目优势
 
