@@ -15,7 +15,7 @@ class Settings(BaseSettings):
     # Security
     secret_key: str = Field(default="your-secret-key-here", alias="SECRET_KEY")
     algorithm: str = "HS256"
-    access_token_expire_minutes: int = 30
+    access_token_expire_minutes: int = 10080  # 7 days (7 * 24 * 60 = 10080 minutes)
     
     # Database - can be overridden by environment variables
     db_host: str = Field(default="localhost", alias="DB_HOST")

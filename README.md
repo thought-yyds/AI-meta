@@ -2,6 +2,16 @@
 
 一个基于 FastAPI 和 Vue 3 的智能聊天应用，集成了 AI Agent 和记忆总结功能。
 
+## 项目优势
+
+![AI Meta 聊天界面](img/image.png)
+
+- 智能会话记忆：每 10 条消息自动触发总结，历史上下文+摘要一并存储，既保留细节又压缩上下文长度。
+- 插件化 Agent：沿用 `src/` 下的工具链与 Doubao LLM，前端可视化地展示步骤和结果，方便排障与演示。
+- 桌面自动化：集成 WindowsMCP，支持会议创建/加入、屏幕内容提取等跨应用操作，拓展真实办公场景。
+- 双端可观测：后端记录所有推理步骤，前端 TaskInsight 面板提供“用户/开发者”双视角，结果透明可追溯。
+- 易扩展易部署：FastAPI + Vue3 + SQLite 的轻量组合，配套 `.env`、初始化脚本、WindowsMCP 配置指南，落地成本低。
+
 ## 功能特性
 
 - ✅ 用户认证（注册/登录）
@@ -196,11 +206,112 @@ python test_connection.py
 - **后端**：在 `app/api/v1/` 下添加新的路由文件，在 `app/services/` 下添加业务逻辑。
 - **前端**：在 `src/components/` 下添加新组件，在 `src/services/api.ts` 中添加 API 调用。
 
+## WindowsMCP 配置
+
+WindowsMCP 工具提供了 Windows 桌面自动化能力。配置方式有以下几种：
+
+### 方式 1：全局安装（推荐）
+
+使用 .NET 工具全局安装 WindowsMCP.Net：
+
+```bash
+dotnet tool install --global WindowsMCP.Net
+```
+
+安装后，工具会自动通过 `dotnet tool run` 命令找到并启动。
+
+### 方式 2：配置系统 PATH
+
+如果 WindowsMCP.Net 已安装但不在系统 PATH 中：
+
+1. **找到可执行文件位置**：
+   - 全局安装通常在：`%USERPROFILE%\.dotnet\tools\Windows-MCP.Net.exe`
+   - 例如：`C:\Users\Lenovo\.dotnet\tools\Windows-MCP.Net.exe`
+   - 或通过 `where Windows-MCP.Net` 查找
+
+2. **添加到系统 PATH**：
+   - 打开"系统属性" → "高级" → "环境变量"
+   - 在"系统变量"中找到 `Path`，点击"编辑"
+   - 添加包含 `WindowsMCP.Net.exe` 的目录路径
+   - 重启终端或 IDE
+
+### 方式 3：使用完整路径（无需配置 PATH）
+
+如果不想修改系统 PATH，可以直接指定可执行文件的完整路径：
+
+**在 `.env` 文件中配置**：
+
+```env
+# 方式 A：使用完整路径（Windows 路径，.exe 扩展名可选）
+WINDOWS_MCP_COMMAND=C:\Users\Lenovo\.dotnet\tools\Windows-MCP.Net
+# 或
+WINDOWS_MCP_COMMAND=C:\Users\Lenovo\.dotnet\tools\Windows-MCP.Net.exe
+
+# 方式 B：使用完整路径（相对路径，从项目根目录）
+WINDOWS_MCP_COMMAND=./tools/Windows-MCP.Net.exe
+
+# 可选：自定义参数（JSON 格式）
+WINDOWS_MCP_ARGS=["--yes"]
+```
+
+> **注意**：代码会自动处理 `.exe` 扩展名，如果路径不存在，会自动尝试添加 `.exe` 扩展名。
+
+**在代码中配置**：
+
+```python
+from src.tools.windows_mcp import WindowsMCPClient
+
+# 使用完整路径（.exe 扩展名可选）
+client = WindowsMCPClient(
+    command=r"C:\Users\Lenovo\.dotnet\tools\Windows-MCP.Net",
+    args=[]  # 如果可执行文件不需要额外参数
+)
+# 或
+client = WindowsMCPClient(
+    command=r"C:\Users\Lenovo\.dotnet\tools\Windows-MCP.Net.exe",
+    args=[]
+)
+```
+
+### 验证配置
+
+运行以下命令测试 WindowsMCP 是否正常工作：
+
+```python
+from src.tools.windows_mcp import WindowsMCPClient
+
+try:
+    client = WindowsMCPClient()
+    tools = client.list_tools_json()
+    print("WindowsMCP 配置成功！")
+    print(f"可用工具：{tools}")
+except Exception as e:
+    print(f"配置失败：{e}")
+```
+
+### 常见问题
+
+1. **找不到命令**：
+   - 检查是否已安装：`dotnet tool list -g`
+   - 检查 PATH 是否包含工具目录
+   - 或使用完整路径方式
+
+2. **权限问题**：
+   - 确保可执行文件有执行权限
+   - Windows 可能需要以管理员身份运行
+
+3. **路径格式**：
+   - Windows 路径使用反斜杠 `\` 或正斜杠 `/`
+   - 建议使用原始字符串 `r"C:\path\to\file.exe"` 或双反斜杠 `"C:\\path\\to\\file.exe"`
+   - 可执行文件名是 `Windows-MCP.Net`（带连字符），不是 `WindowsMCP.Net`
+   - `.exe` 扩展名可选，代码会自动处理
+
 ## 注意事项
 
 - 确保后端服务运行在 `http://localhost:8000`
 - 确保前端可以访问后端 API（检查 CORS 配置）
 - 需要配置 LLM 服务的 API Key（DoubaoService）
+- WindowsMCP 需要 .NET 运行时环境
 
 ## License
 

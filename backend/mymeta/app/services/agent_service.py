@@ -110,7 +110,7 @@ class AgentService:
             agent = self.get_agent(working_dir=working_dir)
             
             # Use the agent's run method with conversation history support
-            # The agent will use all available tools (FileParserTool, MeetingSummaryTool, etc.)
+            # The agent will use all available tools (FileParserTool, LocalRetrievalTool, etc.)
             # and can access files in the working_dir
             result = agent.run(
                 task=message,

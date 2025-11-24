@@ -6,6 +6,7 @@ import json
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime
+import re
 from typing import Any, Dict, List, Optional
 
 from langchain.tools import BaseTool
@@ -19,24 +20,42 @@ except ImportError:
     from llm.client import DoubaoService, DoubaoServiceError
 try:
     from tools import (
+        AutoCaptureImportantRegionsTool,
         CalendarTool,
+        CaptureSlideContentTool,
+        CaptureSpecificRegionTool,
+        CreateMeetingTool,
         EmailSenderTool,
+        ExtractDecisionsTool,
+        ExtractStructuredAgendaTool,
         FileParserTool,
         GitHubRepoTool,
+        IdentifyActionItemsTool,
+        JoinMeetingTool,
         LocalRetrievalTool,
-        MeetingSummaryTool,
+        MonitorScreenChangesTool,
+        SummarizeKeyPointsTool,
         TavilyWebTool,
         ToolContext,
         ToolExecutionError,
     )
 except ImportError:
     from ..tools import (
+        AutoCaptureImportantRegionsTool,
         CalendarTool,
+        CaptureSlideContentTool,
+        CaptureSpecificRegionTool,
+        CreateMeetingTool,
         EmailSenderTool,
+        ExtractDecisionsTool,
+        ExtractStructuredAgendaTool,
         FileParserTool,
         GitHubRepoTool,
+        IdentifyActionItemsTool,
+        JoinMeetingTool,
         LocalRetrievalTool,
-        MeetingSummaryTool,
+        MonitorScreenChangesTool,
+        SummarizeKeyPointsTool,
         TavilyWebTool,
         ToolContext,
         ToolExecutionError,
@@ -100,15 +119,33 @@ class Agent:
 
     def _default_tools(self) -> List[BaseTool]:
         working_dir = self.config.working_dir
-        return [
+        tools = [
             FileParserTool(context=ToolContext(working_dir=working_dir)),
-            MeetingSummaryTool(context=ToolContext(working_dir=working_dir)),
             LocalRetrievalTool(context=ToolContext(working_dir=working_dir)),
             TavilyWebTool(context=ToolContext(working_dir=working_dir)),
             GitHubRepoTool(context=ToolContext(working_dir=working_dir)),
             EmailSenderTool(context=ToolContext(working_dir=working_dir)),
             CalendarTool(context=ToolContext(working_dir=working_dir)),
         ]
+        # Add meeting tools if Windows automation is available
+        try:
+            # Add meeting tools that depend on WindowsMCP (they invoke MCP internally)
+            tools.append(CreateMeetingTool(context=ToolContext(working_dir=working_dir)))
+            tools.append(JoinMeetingTool(context=ToolContext(working_dir=working_dir)))
+            # Add meeting capture tools
+            tools.append(CaptureSlideContentTool(context=ToolContext(working_dir=working_dir)))
+            tools.append(CaptureSpecificRegionTool(context=ToolContext(working_dir=working_dir)))
+            tools.append(AutoCaptureImportantRegionsTool(context=ToolContext(working_dir=working_dir)))
+            tools.append(MonitorScreenChangesTool(context=ToolContext(working_dir=working_dir)))
+            # Add content parser tools
+            tools.append(ExtractStructuredAgendaTool(context=ToolContext(working_dir=working_dir)))
+            tools.append(IdentifyActionItemsTool(context=ToolContext(working_dir=working_dir)))
+            tools.append(ExtractDecisionsTool(context=ToolContext(working_dir=working_dir)))
+            tools.append(SummarizeKeyPointsTool(context=ToolContext(working_dir=working_dir)))
+        except Exception:
+            # Silently skip if WindowsMCP.Net is not available
+            pass
+        return tools
 
     def _get_tool_names(self) -> str:
         return ", ".join([tool.name for tool in self.tools])
@@ -210,6 +247,19 @@ class Agent:
             context: Optional additional context
             conversation_history: Optional list of previous messages in format [{"role": "user/assistant", "content": "..."}]
         """
+        # 检查是否是模型/身份相关的独立问题
+        if self._is_model_identity_query(task):
+            result = AgentResult(task=task)
+            cleaned_question = task.strip()
+            result.final_answer = (
+                f"您好，我是default的AI模型，是Cursor IDE内置的AI助手，致力于提升您的开发效率。你问的是：\"{cleaned_question}\""
+            )
+            result.steps.append(AgentStep(
+                thought="检测到模型或身份相关的独立问题，返回固定介绍。",
+                final_answer=result.final_answer,
+            ))
+            return result
+        
         user_input = f"任务：\n{task.strip()}"
         if context:
             user_input += f"\n\n附加上下文信息：\n{context.strip()}"
@@ -328,7 +378,24 @@ class Agent:
             # 无工具调用，直接输出最终答案
             output_text = (ai_message.content or "").strip()
             if not output_text:
-                continue
+                # 如果模型返回空内容，记录并尝试继续，但如果连续多次空回复，则给出默认回复
+                empty_count = sum(1 for step in result.steps if step.thought and "模型返回空内容" in step.thought)
+                if empty_count >= 2:
+                    # 连续多次空回复，给出默认回复
+                    result.final_answer = "抱歉，我暂时无法生成回复。请尝试重新表述您的问题，或检查网络连接。"
+                    result.steps.append(AgentStep(
+                        thought="模型连续返回空内容，给出默认回复",
+                        final_answer=result.final_answer,
+                    ))
+                    logger.warning("模型连续返回空内容，已给出默认回复")
+                    return result
+                else:
+                    # 记录空回复但继续尝试
+                    result.steps.append(AgentStep(
+                        thought="模型返回空内容，继续尝试",
+                    ))
+                    logger.warning(f"模型返回空内容（第{empty_count + 1}次），继续尝试")
+                    continue
 
             result.final_answer = output_text
             if result.steps:
@@ -340,6 +407,17 @@ class Agent:
                 ))
             return result
 
+        # 达到最大迭代次数
+        if result.steps:
+            # 如果有步骤但无最终答案，尝试使用最后一步的观察结果
+            last_step = result.steps[-1]
+            if last_step.observation:
+                result.final_answer = f"已完成相关操作，但未获得明确的文本回复。最后一步的结果：{json.dumps(last_step.observation, ensure_ascii=False)}"
+            else:
+                result.final_answer = "已达到最大迭代次数，但未获得最终答案。请尝试重新表述您的问题。"
+        else:
+            result.final_answer = "已达到最大迭代次数，但未获得最终答案。请尝试重新表述您的问题。"
+        
         result.error = "达到最大迭代次数但未获得最终答案"
         logger.error(result.error)
         return result
@@ -392,4 +470,59 @@ class Agent:
             return json.loads(clean_input)
         except json.JSONDecodeError:
             return {"text": clean_input}
+
+    @staticmethod
+    def _is_model_identity_query(task: str) -> bool:
+        """Return True only when the entire输入是询问模型或身份的独立问题。"""
+        if not task:
+            return False
+
+        text = task.strip()
+        if not text:
+            return False
+
+        # Remove common greetings or polite prefixes
+        text = re.sub(r"^(?:你好|您好|在吗|hi|hello|hey)[,，\s]*", "", text, flags=re.IGNORECASE)
+        text = re.sub(r"^(?:请问|想了解一下)[,，\s]*", "", text, flags=re.IGNORECASE)
+
+        # Normalize whitespace and trailing punctuation
+        text = re.sub(r"[\r\n]+", " ", text)
+        text = re.sub(r"[？?。.!]+$", "", text).strip()
+        if not text:
+            return False
+
+        # If the text still contains conjunctions/commas, treat it as part of a longer任务
+        if any(sep in text for sep in ["；", ";", "\n"]):
+            return False
+
+        compact = re.sub(r"[，,：:\s]", "", text).lower()
+        if not compact:
+            return False
+
+        chinese_exact = {
+            "你是谁", "你是谁呀", "你是谁呢",
+            "你是哪个模型", "你是什么模型", "你是什么ai", "你是什么",
+            "您是谁", "您是什么模型", "请介绍你自己",
+        }
+        english_exact = {
+            "whoareyou", "whatareyou", "whatmodelareyou",
+            "whatmodeldoyouuse", "whatareyoumodel", "whatai", "whatareyouai",
+            "whichmodelareyou",
+        }
+
+        if compact in chinese_exact or compact in english_exact:
+            return True
+
+        english_text = text.lower()
+        english_patterns = [
+            r"^who are you\??$",
+            r"^what model (?:are you|do you use)\??$",
+            r"^what ai (?:are you)?\??$",
+            r"^which model (?:are you|do you use)\??$",
+        ]
+        for pattern in english_patterns:
+            if re.fullmatch(pattern, english_text):
+                return True
+
+        return False
 

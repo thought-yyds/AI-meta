@@ -81,7 +81,7 @@ class ApiService {
         // Clear invalid token
         localStorage.removeItem('access_token');
         // Try to parse error message
-        let errorMessage = '未授权：请重新登录';
+        let errorMessage = '登录信息已过期，请重新登录';
         try {
           const contentType = response.headers.get('content-type');
           
@@ -108,6 +108,12 @@ class ApiService {
           // If parsing fails, use default message
           console.warn('Failed to parse 401 error response:', e);
         }
+        
+        // Trigger global event for token expiration
+        window.dispatchEvent(new CustomEvent('token-expired', {
+          detail: { message: errorMessage }
+        }));
+        
         // Create a custom error that can be caught and handled
         const error = new Error(errorMessage);
         (error as any).status = 401;
@@ -289,7 +295,11 @@ class ApiService {
             }
           } else if (xhr.status === 401) {
             localStorage.removeItem('access_token');
-            const error = new Error('未授权：请重新登录');
+            // Trigger global event for token expiration
+            window.dispatchEvent(new CustomEvent('token-expired', {
+              detail: { message: '登录信息已过期，请重新登录' }
+            }));
+            const error = new Error('登录信息已过期，请重新登录');
             (error as any).status = 401;
             (error as any).requiresAuth = true;
             reject(error);

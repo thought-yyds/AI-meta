@@ -327,12 +327,21 @@ const getStatusLabel = (status: string) => {
 const getToolDisplayName = (toolName: string): string => {
   const toolNames: Record<string, string> = {
     'file_parser': '文件解析',
-    'meeting_summary': '会议总结',
-    'local_retrieval': '本地检索',
-    'tavily_web': '网络搜索',
-    'github_repo': 'GitHub 代码',
-    'email_sender': '邮件发送',
-    'calendar': '日历管理',
+    'retrieval': '本地检索',
+    'web_search': '网络搜索',
+    'github_mcp_tool': 'GitHub 仓库',
+    'send_email': '邮件发送',
+    'add_calendar_event': '日历事件',
+    'create_meeting': '创建会议',
+    'join_meeting': '加入会议',
+    'capture_slide_content': '捕获幻灯片',
+    'capture_specific_region': '捕获区域',
+    'auto_capture_important_regions': '自动捕获重要区域',
+    'monitor_screen_changes': '监控屏幕变化',
+    'extract_structured_agenda': '提取结构化议程',
+    'identify_action_items': '识别行动项',
+    'extract_decisions': '提取决策',
+    'summarize_key_points': '总结要点',
   };
   return toolNames[toolName] || toolName;
 };

@@ -9,6 +9,7 @@ const isAuthenticated = ref(false);
 const currentSessionId = ref<number | null>(null);
 const taskExecutionState = ref<any>(null);
 const username = ref<string>('');
+const tokenExpiredMessage = ref<string>(''); // Message to show when token expires
 
 // Resizable panel widths
 const leftPanelWidth = ref(280);
@@ -17,6 +18,23 @@ const savedRightPanelWidth = ref(320); // Store width when not collapsed
 const isResizingLeft = ref(false);
 const isResizingRight = ref(false);
 const isRightPanelCollapsed = ref(false);
+
+// Handle token expiration
+const handleTokenExpired = (event: CustomEvent) => {
+  const message = event.detail?.message || '登录信息已过期，请重新登录';
+  tokenExpiredMessage.value = message;
+  // Clear authentication state
+  localStorage.removeItem('access_token');
+  isAuthenticated.value = false;
+  username.value = '';
+  currentSessionId.value = null;
+  taskExecutionState.value = null;
+  
+  // Auto-hide message after 5 seconds
+  setTimeout(() => {
+    tokenExpiredMessage.value = '';
+  }, 5000);
+};
 
 // Load saved widths from localStorage
 onMounted(() => {
@@ -30,6 +48,9 @@ onMounted(() => {
     rightPanelWidth.value = parseInt(savedRightWidth, 10);
     savedRightPanelWidth.value = rightPanelWidth.value;
   }
+  
+  // Listen for token expiration events
+  window.addEventListener('token-expired', handleTokenExpired as EventListener);
 });
 
 // Save widths to localStorage
@@ -102,6 +123,7 @@ onUnmounted(() => {
   document.removeEventListener('mouseup', stopResizeLeft);
   document.removeEventListener('mousemove', handleResizeRight);
   document.removeEventListener('mouseup', stopResizeRight);
+  window.removeEventListener('token-expired', handleTokenExpired as EventListener);
 });
 
 const checkAuth = () => {
@@ -120,6 +142,7 @@ const checkAuth = () => {
 
 const handleAuthenticated = () => {
   isAuthenticated.value = true;
+  tokenExpiredMessage.value = ''; // Clear any expired message
   checkAuth();
 };
 
@@ -166,6 +189,14 @@ const handleLogout = () => {
 </script>
 
 <template>
+  <!-- Token expired notification -->
+  <div v-if="tokenExpiredMessage" class="token-expired-notification">
+    <div class="notification-content">
+      <span class="notification-icon">⚠️</span>
+      <span class="notification-message">{{ tokenExpiredMessage }}</span>
+    </div>
+  </div>
+  
   <Auth v-if="!isAuthenticated" @authenticated="handleAuthenticated" />
   <div v-else class="app-container">
     <!-- Top Navigation Bar -->
@@ -417,6 +448,48 @@ const handleLogout = () => {
   margin-right: 0.375rem;
 }
 
+.token-expired-notification {
+  position: fixed;
+  top: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 10000;
+  background: linear-gradient(135deg, #ff6b6b 0%, #ee5a6f 100%);
+  color: white;
+  padding: 1rem 1.5rem;
+  border-radius: 8px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+  animation: slideDown 0.3s ease-out;
+  max-width: 90%;
+  min-width: 300px;
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+}
+
+.notification-content {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.notification-icon {
+  font-size: 1.25rem;
+}
+
+.notification-message {
+  font-weight: 500;
+  font-size: 0.95rem;
+}
+
 @media (max-width: 768px) {
   .top-nav {
     padding: 0.5rem 1rem;
@@ -437,6 +510,14 @@ const handleLogout = () => {
   .main-content {
     margin: 0.25rem;
     gap: 0.25rem;
+  }
+  
+  .token-expired-notification {
+    min-width: auto;
+    width: calc(100% - 2rem);
+    left: 1rem;
+    transform: none;
+    padding: 0.875rem 1.25rem;
   }
 }
 </style>

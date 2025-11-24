@@ -8,6 +8,18 @@
       </div>
 
       <div class="chat-messages" ref="messagesContainer" :class="{ 'has-messages': messages.length > 0 }">
+        <!-- 欢迎消息 -->
+        <div v-if="messages.length === 0" class="welcome-message">
+          <div class="welcome-content">
+            <div class="welcome-greeting">
+              <div class="greeting-text">
+                <div class="greeting-line">{{ displayedLine1 }}<span class="cursor" v-if="isTyping">|</span></div>
+                <div class="greeting-line" v-if="line1Complete">{{ displayedLine2 }}<span class="cursor" v-if="isTypingLine2">|</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+        
         <!-- 消息列表 -->
         <div
           v-for="message in messages"
@@ -41,17 +53,6 @@
       </div>
 
       <div class="chat-input-container" :class="{ 'centered': messages.length === 0 }">
-        <!-- 欢迎消息 -->
-        <div v-if="messages.length === 0" class="welcome-message">
-          <div class="welcome-content">
-            <div class="welcome-greeting">
-              <div class="greeting-text">
-                你好，{{ props.username || '用户' }}！有什么能帮到你？
-              </div>
-            </div>
-          </div>
-        </div>
-        
         <div class="input-wrapper">
           <input
             type="file"
@@ -61,12 +62,32 @@
             style="display: none"
           />
           <button
+            @click="toggleVoiceRecognition"
+            class="voice-button"
+            :class="{ 'recording': isRecording }"
+            :disabled="isLoading || !isSpeechRecognitionSupported"
+            :title="isRecording ? '点击停止录音' : '语音输入'"
+          >
+            <svg v-if="!isRecording" class="voice-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
+              <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+              <line x1="12" y1="19" x2="12" y2="23"></line>
+              <line x1="8" y1="23" x2="16" y2="23"></line>
+            </svg>
+            <div v-else class="recording-indicator">
+              <div class="pulse-dot"></div>
+              <span class="recording-text">录音中</span>
+            </div>
+          </button>
+          <button
             @click="triggerFileUpload"
             class="upload-button"
             :disabled="isLoading"
             title="上传文档 (PDF, DOCX, PPTX, TXT, MD)"
           >
-            📎
+            <svg class="pin-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" xmlns="http://www.w3.org/2000/svg">
+              <path d="M16 4H9.5C8.12 4 7 5.12 7 6.5C7 7.88 8.12 9 9.5 9H14.5C15.88 9 17 10.12 17 11.5C17 12.88 15.88 14 14.5 14H8" fill="none"/>
+            </svg>
           </button>
           <textarea
             v-model="inputMessage"
@@ -87,6 +108,31 @@
             </button>
           </div>
         </div>
+        <!-- 语音识别结果预览 -->
+        <div v-if="voiceTranscript" class="voice-preview">
+          <div class="voice-preview-header">
+            <span class="voice-preview-label">🎤 语音识别结果：</span>
+          </div>
+          <div class="voice-preview-content">
+            <div class="voice-preview-text">{{ voiceTranscript }}</div>
+            <div class="voice-preview-actions">
+              <button
+                @click="confirmVoiceMessage"
+                :disabled="!voiceTranscript.trim() || isLoading"
+                class="voice-confirm-btn"
+              >
+                ✓ 确认发送
+              </button>
+              <button
+                @click="cancelVoiceMessage"
+                :disabled="isLoading"
+                class="voice-cancel-btn"
+              >
+                ✕ 取消
+              </button>
+            </div>
+          </div>
+        </div>
         <!-- 上传状态提示 -->
         <div v-if="uploadStatus" class="upload-status" :class="uploadStatus.type">
           <div class="upload-status-content">
@@ -105,7 +151,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch, nextTick } from 'vue';
+import { ref, watch, nextTick, onMounted, onUnmounted } from 'vue';
 import { apiService, type Message, type ExecutionStep } from '../services/api';
 
 const props = defineProps<{
@@ -135,6 +181,103 @@ const errorMessage = ref('');
 const errorRequiresAuth = ref(false);
 const fileInput = ref<HTMLInputElement | null>(null);
 const uploadStatus = ref<{ type: 'success' | 'error' | 'uploading'; message: string; progress?: number } | null>(null);
+
+// 语音识别相关
+const isRecording = ref(false);
+const isSpeechRecognitionSupported = ref(false);
+const voiceTranscript = ref(''); // 语音识别的临时结果
+let recognition: any = null;
+let recognitionTimeout: number | null = null;
+let lastFinalIndex = 0; // 记录最后处理的最终结果索引
+
+// 语音识别缓存键
+const VOICE_CACHE_KEY = 'voice_recognition_cache';
+const MAX_CACHE_SIZE = 50; // 最多缓存50条
+
+// 打字机效果
+const displayedLine1 = ref('');
+const displayedLine2 = ref('');
+const line1Complete = ref(false);
+const isTyping = ref(false);
+const isTypingLine2 = ref(false);
+let typewriterTimer: number | null = null;
+
+const startTypewriter = () => {
+  // 获取最新的用户名
+  const fullLine1 = `你好，${props.username || '用户'}！`;
+  const fullLine2 = '有什么能帮到你？';
+  
+  // 重置状态
+  displayedLine1.value = '';
+  displayedLine2.value = '';
+  line1Complete.value = false;
+  isTyping.value = true;
+  isTypingLine2.value = false;
+  
+  let line1Index = 0;
+  let line2Index = 0;
+  
+  const typeLine1 = () => {
+    if (line1Index < fullLine1.length) {
+      displayedLine1.value = fullLine1.substring(0, line1Index + 1);
+      line1Index++;
+      typewriterTimer = window.setTimeout(typeLine1, 100 + Math.random() * 50);
+    } else {
+      line1Complete.value = true;
+      isTyping.value = false;
+      // 短暂停顿后开始第二行
+      typewriterTimer = window.setTimeout(() => {
+        isTypingLine2.value = true;
+        typeLine2();
+      }, 300);
+    }
+  };
+  
+  const typeLine2 = () => {
+    if (line2Index < fullLine2.length) {
+      displayedLine2.value = fullLine2.substring(0, line2Index + 1);
+      line2Index++;
+      typewriterTimer = window.setTimeout(typeLine2, 100 + Math.random() * 50);
+    } else {
+      isTypingLine2.value = false;
+    }
+  };
+  
+  // 延迟开始，让动画更自然
+  typewriterTimer = window.setTimeout(typeLine1, 300);
+};
+
+// 当没有消息时启动打字机效果
+watch(() => messages.value.length, (newLength) => {
+  if (newLength === 0) {
+    // 清除之前的定时器
+    if (typewriterTimer) {
+      clearTimeout(typewriterTimer);
+    }
+    // 延迟启动，确保DOM已更新
+    nextTick(() => {
+      startTypewriter();
+    });
+  }
+}, { immediate: true });
+
+onUnmounted(() => {
+  if (typewriterTimer) {
+    clearTimeout(typewriterTimer);
+  }
+  // 清理语音识别
+  if (recognition && isRecording.value) {
+    recognition.stop();
+  }
+  if (recognitionTimeout) {
+    clearTimeout(recognitionTimeout);
+  }
+});
+
+// 初始化语音识别
+onMounted(() => {
+  initSpeechRecognition();
+});
 
 // Load messages
 const loadMessages = async () => {
@@ -378,6 +521,315 @@ const getCurrentDate = () => {
   return `今天是 ${year}年${month}月${day}日 ${weekday}`;
 };
 
+
+// 语音识别初始化
+const initSpeechRecognition = () => {
+  // 检查浏览器是否支持语音识别
+  const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+  
+  if (!SpeechRecognition) {
+    isSpeechRecognitionSupported.value = false;
+    return;
+  }
+  
+  isSpeechRecognitionSupported.value = true;
+  recognition = new SpeechRecognition();
+  recognition.continuous = true; // 持续识别
+  recognition.interimResults = true; // 返回临时结果
+  recognition.lang = 'zh-CN'; // 设置为中文
+  
+  recognition.onstart = () => {
+    isRecording.value = true;
+    lastFinalIndex = 0; // 重置索引
+  };
+  
+  recognition.onresult = (event: any) => {
+    let finalTranscript = '';
+    let interimTranscript = '';
+    
+    // 处理所有结果（包括临时和最终结果）
+    for (let i = 0; i < event.results.length; i++) {
+      const transcript = event.results[i][0].transcript;
+      if (event.results[i].isFinal) {
+        finalTranscript += transcript + ' ';
+        lastFinalIndex = i + 1; // 更新最后处理的索引
+      } else {
+        // 临时结果也显示，让用户看到实时识别
+        interimTranscript += transcript;
+      }
+    }
+    
+    // 更新语音识别预览（最终结果 + 临时结果）
+    if (finalTranscript || interimTranscript) {
+      voiceTranscript.value = (finalTranscript + interimTranscript).trim();
+    }
+  };
+  
+  recognition.onerror = (event: any) => {
+    console.error('语音识别错误:', event.error);
+    isRecording.value = false;
+    
+    let errorMessage = '语音识别出错';
+    switch (event.error) {
+      case 'no-speech':
+        errorMessage = '未检测到语音，请重试';
+        break;
+      case 'audio-capture':
+        errorMessage = '无法访问麦克风，请检查权限';
+        break;
+      case 'not-allowed':
+        errorMessage = '麦克风权限被拒绝，请在浏览器设置中允许';
+        break;
+      case 'network':
+        errorMessage = '网络错误，请检查网络连接';
+        break;
+    }
+    
+    uploadStatus.value = {
+      type: 'error',
+      message: errorMessage
+    };
+    setTimeout(() => { uploadStatus.value = null; }, 3000);
+  };
+  
+  recognition.onend = () => {
+    isRecording.value = false;
+    // 如果用户还在录音，自动重新开始（处理自动停止的情况）
+    // 注意：某些浏览器可能会自动停止，我们需要检查用户是否真的想停止
+    // 如果识别结果为空，清除预览
+    if (!voiceTranscript.value.trim()) {
+      voiceTranscript.value = '';
+    }
+  };
+};
+
+// 切换语音识别
+const toggleVoiceRecognition = () => {
+  if (!isSpeechRecognitionSupported.value || !recognition) {
+    uploadStatus.value = {
+      type: 'error',
+      message: '您的浏览器不支持语音识别功能'
+    };
+    setTimeout(() => { uploadStatus.value = null; }, 3000);
+    return;
+  }
+  
+  if (isRecording.value) {
+    // 停止录音
+    recognition.stop();
+    isRecording.value = false;
+    if (recognitionTimeout) {
+      clearTimeout(recognitionTimeout);
+      recognitionTimeout = null;
+    }
+    // 如果识别结果为空，清除预览
+    if (!voiceTranscript.value.trim()) {
+      voiceTranscript.value = '';
+      uploadStatus.value = {
+        type: 'error',
+        message: '未识别到语音内容，请重试'
+      };
+      setTimeout(() => { uploadStatus.value = null; }, 3000);
+    }
+  } else {
+    // 开始录音前清除之前的识别结果
+    voiceTranscript.value = '';
+    lastFinalIndex = 0;
+    // 开始录音
+    try {
+      recognition.start();
+      // 设置超时自动停止（可选，例如5分钟）
+      recognitionTimeout = window.setTimeout(() => {
+        if (isRecording.value) {
+          recognition.stop();
+        }
+      }, 5 * 60 * 1000); // 5分钟
+    } catch (error: any) {
+      console.error('启动语音识别失败:', error);
+      if (error.message && error.message.includes('already started')) {
+        // 如果已经在运行，先停止再开始
+        recognition.stop();
+        setTimeout(() => {
+          recognition.start();
+        }, 100);
+      } else {
+        uploadStatus.value = {
+          type: 'error',
+          message: '无法启动语音识别，请重试'
+        };
+        setTimeout(() => { uploadStatus.value = null; }, 3000);
+      }
+    }
+  }
+};
+
+// 确认并发送语音消息
+const confirmVoiceMessage = async () => {
+  if (!voiceTranscript.value.trim() || isLoading.value) {
+    return;
+  }
+
+  const transcript = voiceTranscript.value.trim();
+  
+  // 保存到缓存
+  saveToVoiceCache(transcript);
+  
+  // 清除预览
+  voiceTranscript.value = '';
+  
+  // 直接发送消息（不填入文本框）
+  const userMessage = transcript;
+  isLoading.value = true;
+
+  // Add user message
+  const tempUserMessage: MessageWithSteps = {
+    id: Date.now(),
+    session_id: props.sessionId || 0,
+    role: 'user',
+    content: userMessage,
+    created_at: new Date().toISOString(),
+  };
+  messages.value.push(tempUserMessage);
+  scrollToBottom();
+
+  try {
+    // Send to API
+    const response = await apiService.sendMessage({
+      session_id: props.sessionId || undefined,
+      message: userMessage,
+    });
+
+    // Check if a new session was created
+    if (response.session_id && response.session_id !== props.sessionId) {
+      emit('session-created', response.session_id);
+    }
+    
+    // Reload all messages to get both user and assistant messages from database
+    if (response.session_id) {
+      messages.value = await apiService.getMessages(response.session_id);
+      // Find the assistant message and add execution steps to it
+      const lastMessage = messages.value[messages.value.length - 1];
+      if (lastMessage && lastMessage.role === 'assistant') {
+        (lastMessage as MessageWithSteps).execution_steps = response.execution_steps;
+      }
+    } else {
+      // Fallback: if no session_id, replace temp message and add assistant message
+      messages.value = messages.value.filter(m => m.id !== tempUserMessage.id);
+      // Add user message
+      const savedUserMessage: MessageWithSteps = {
+        id: Date.now() - 1,
+        session_id: props.sessionId || 0,
+        role: 'user',
+        content: userMessage,
+        created_at: new Date().toISOString(),
+      };
+      messages.value.push(savedUserMessage);
+      
+      // Add assistant message with execution steps
+      const assistantMessage: MessageWithSteps = {
+        ...response.message,
+        execution_steps: response.execution_steps,
+      };
+      messages.value.push(assistantMessage);
+    }
+    
+    // Convert execution steps to task execution state and emit to parent
+    if (response.execution_steps && response.execution_steps.length > 0) {
+      const taskState = convertExecutionStepsToTaskState(response.execution_steps);
+      emit('task-state-update', taskState);
+    }
+    
+    emit('message-sent');
+    scrollToBottom();
+  } catch (error: any) {
+    console.error('Failed to send voice message:', error);
+    
+    // Extract user-friendly error message
+    let message = '发送消息失败，请稍后重试';
+    let requiresAuth = false;
+    
+    if (error) {
+      if (error instanceof Error) {
+        const errorMsg = error.message;
+        if (errorMsg && !errorMsg.includes('<') && !errorMsg.includes('object at')) {
+          message = errorMsg;
+        }
+      } else if (typeof error === 'string') {
+        if (!error.includes('<') && !error.includes('object at')) {
+          message = error;
+        }
+      }
+      
+      if (error.status === 401 || error.requiresAuth) {
+        requiresAuth = true;
+        message = message || '登录已过期，请重新登录';
+      }
+    }
+    
+    errorMessage.value = message;
+    errorRequiresAuth.value = requiresAuth;
+    
+    setTimeout(() => {
+      errorMessage.value = '';
+      errorRequiresAuth.value = false;
+    }, 5000);
+    
+    // Remove user message if API call failed
+    messages.value = messages.value.filter(m => m.id !== tempUserMessage.id);
+  } finally {
+    isLoading.value = false;
+  }
+};
+
+// 取消语音消息
+const cancelVoiceMessage = () => {
+  voiceTranscript.value = '';
+  if (isRecording.value) {
+    recognition?.stop();
+    isRecording.value = false;
+  }
+};
+
+// 保存到语音识别缓存
+const saveToVoiceCache = (transcript: string) => {
+  try {
+    const cached = localStorage.getItem(VOICE_CACHE_KEY);
+    let cache: string[] = [];
+    
+    if (cached) {
+      try {
+        cache = JSON.parse(cached);
+      } catch (e) {
+        cache = [];
+      }
+    }
+    
+    // 添加到开头
+    cache.unshift(transcript);
+    
+    // 限制缓存大小
+    if (cache.length > MAX_CACHE_SIZE) {
+      cache = cache.slice(0, MAX_CACHE_SIZE);
+    }
+    
+    localStorage.setItem(VOICE_CACHE_KEY, JSON.stringify(cache));
+  } catch (error) {
+    console.error('Failed to save voice cache:', error);
+  }
+};
+
+// 从缓存获取历史记录（可选功能，如果需要的话）
+const getVoiceCache = (): string[] => {
+  try {
+    const cached = localStorage.getItem(VOICE_CACHE_KEY);
+    if (cached) {
+      return JSON.parse(cached);
+    }
+  } catch (error) {
+    console.error('Failed to get voice cache:', error);
+  }
+  return [];
+};
 
 // 文件上传相关
 const triggerFileUpload = () => {
@@ -821,10 +1273,11 @@ const handleFileSelect = async (event: Event) => {
 .welcome-message {
   display: flex;
   justify-content: center;
-  align-items: flex-start;
+  align-items: center;
   width: 100%;
-  padding: 0;
-  margin-bottom: 1.5rem;
+  padding: 2rem 1rem;
+  margin-bottom: 2rem;
+  min-height: 200px;
 }
 
 .welcome-content {
@@ -851,23 +1304,11 @@ const handleFileSelect = async (event: Event) => {
 
 .welcome-greeting {
   background: transparent;
-  padding: 0 0 1.5rem 0;
+  padding: 2rem 2.5rem;
+  border-radius: 20px;
   position: relative;
   overflow: hidden;
   transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.welcome-greeting::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 1px;
-  background: linear-gradient(90deg, 
-    transparent 0%, 
-    rgba(102, 126, 234, 0.25) 50%, 
-    transparent 100%);
 }
 
 .welcome-greeting::after {
@@ -887,19 +1328,68 @@ const handleFileSelect = async (event: Event) => {
 
 .greeting-text {
   font-size: 1.5rem;
-  color: #213547;
   font-weight: 600;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  line-height: 1.8;
+  letter-spacing: -0.3px;
+  position: relative;
+  z-index: 1;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.greeting-line {
+  display: inline-block;
+  animation: fadeInUp 0.5s ease-out;
+}
+
+.greeting-line:first-child {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 50%, #f093fb 100%);
   background-size: 200% 200%;
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
-  line-height: 1.6;
-  letter-spacing: -0.3px;
-  position: relative;
-  z-index: 1;
-  animation: gradientText 3s ease infinite;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
+  animation: fadeInUp 0.5s ease-out, gradientText 4s ease infinite;
+}
+
+.greeting-line:last-child {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 50%, #f093fb 100%);
+  background-size: 200% 200%;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  animation: fadeInUp 0.5s ease-out, gradientText 4s ease infinite 0.5s;
+}
+
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.cursor {
+  display: inline-block;
+  width: 2px;
+  height: 1.2em;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  margin-left: 2px;
+  animation: blink 1s infinite;
+  vertical-align: baseline;
+}
+
+@keyframes blink {
+  0%, 50% {
+    opacity: 1;
+  }
+  51%, 100% {
+    opacity: 0;
+  }
 }
 
 @keyframes gradientText {
@@ -1127,10 +1617,41 @@ const handleFileSelect = async (event: Event) => {
   white-space: pre-wrap;
   line-height: 1.6;
   font-size: 0.95rem;
+  font-family: 'Poppins', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-weight: 400;
+  letter-spacing: 0.3px;
 }
 
 .message.user .message-text {
-  color: white;
+  color: rgba(255, 255, 255, 0.98);
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.15), 0 0 10px rgba(255, 255, 255, 0.1);
+}
+
+.message.assistant .message-text {
+  background: linear-gradient(135deg, 
+    rgba(65, 75, 95, 0.92) 0%, 
+    rgba(75, 85, 105, 0.92) 15%,
+    rgba(70, 80, 100, 0.92) 30%,
+    rgba(80, 90, 110, 0.92) 45%,
+    rgba(68, 78, 98, 0.92) 60%,
+    rgba(77, 87, 107, 0.92) 75%,
+    rgba(72, 82, 102, 0.92) 90%,
+    rgba(73, 83, 103, 0.92) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  background-size: 200% 100%;
+  animation: gradientShift 8s ease infinite;
+  color: rgba(72, 82, 102, 0.92);
+}
+
+@keyframes gradientShift {
+  0%, 100% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
 }
 
 .message-text.typing {
@@ -1196,9 +1717,9 @@ const handleFileSelect = async (event: Event) => {
   flex-direction: column;
   gap: 0;
   padding: 0;
-  background: rgba(255, 255, 255, 0.95);
-  border-top: 1px solid rgba(0, 0, 0, 0.08);
-  backdrop-filter: blur(10px);
+  background: transparent;
+  border-top: none;
+  backdrop-filter: blur(20px);
   transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
   z-index: 10;
   position: relative;
@@ -1238,18 +1759,19 @@ const handleFileSelect = async (event: Event) => {
 
 .chat-input-container.centered {
   position: absolute;
-  bottom: 50%;
+  bottom: 40%;
   left: 50%;
   transform: translateX(-50%);
-  max-width: 600px;
-  width: calc(100% - 4rem);
+  max-width: 900px;
+  width: calc(100% - 6rem);
   margin: 0;
-  border-radius: 24px;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12);
-  border: 1px solid rgba(102, 126, 234, 0.15);
+  border-radius: 40px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.08);
+  border: none;
   animation: floatUp 0.6s cubic-bezier(0.34, 1.56, 0.64, 1);
-  padding: 2rem 1.5rem 1.5rem 1.5rem;
-  border-top: 1px solid rgba(102, 126, 234, 0.15);
+  padding: 2rem;
+  background: transparent;
+  backdrop-filter: blur(20px);
 }
 
 @keyframes floatUp {
@@ -1271,27 +1793,130 @@ const handleFileSelect = async (event: Event) => {
   align-items: center;
 }
 
-.upload-button {
+.voice-button {
   padding: 0.75rem;
-  background: linear-gradient(135deg, #42b883 0%, #35a372 100%);
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   color: white;
   border: none;
   border-radius: 12px;
   cursor: pointer;
   font-size: 1.2rem;
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  box-shadow: 0 2px 8px rgba(66, 184, 131, 0.3);
+  box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3);
   min-width: 44px;
   min-height: 44px;
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
+  font-family: 'Poppins', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-weight: 600;
+  position: relative;
+}
+
+.voice-button.recording {
+  background: linear-gradient(135deg, #f44336 0%, #d32f2f 100%);
+  box-shadow: 0 2px 8px rgba(244, 67, 54, 0.4);
+  animation: pulse 2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% {
+    box-shadow: 0 2px 8px rgba(244, 67, 54, 0.4);
+  }
+  50% {
+    box-shadow: 0 2px 16px rgba(244, 67, 54, 0.6);
+  }
+}
+
+.voice-icon {
+  width: 20px;
+  height: 20px;
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.voice-button:hover:not(:disabled):not(.recording) .voice-icon {
+  transform: scale(1.1);
+}
+
+.voice-button:hover:not(:disabled):not(.recording) {
+  transform: translateY(-2px) scale(1.05);
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+}
+
+.voice-button:active:not(:disabled) {
+  transform: translateY(0) scale(0.98);
+}
+
+.voice-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.recording-indicator {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.pulse-dot {
+  width: 8px;
+  height: 8px;
+  background: white;
+  border-radius: 50%;
+  animation: pulse-dot 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse-dot {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.5;
+    transform: scale(0.8);
+  }
+}
+
+.recording-text {
+  font-size: 0.75rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.upload-button {
+  padding: 0.75rem;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  border: none;
+  border-radius: 12px;
+  cursor: pointer;
+  font-size: 1.2rem;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3);
+  min-width: 44px;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  font-family: 'Poppins', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-weight: 600;
+}
+
+.pin-icon {
+  width: 20px;
+  height: 20px;
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.upload-button:hover:not(:disabled) .pin-icon {
+  transform: rotate(-15deg) scale(1.1);
 }
 
 .upload-button:hover:not(:disabled) {
   transform: translateY(-2px) scale(1.05);
-  box-shadow: 0 4px 12px rgba(66, 184, 131, 0.4);
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
 }
 
 .upload-button:active:not(:disabled) {
@@ -1299,6 +1924,114 @@ const handleFileSelect = async (event: Event) => {
 }
 
 .upload-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.voice-preview {
+  margin: 0.75rem 1.25rem 0.5rem 1.25rem;
+  padding: 1rem;
+  background: linear-gradient(135deg, rgba(102, 126, 234, 0.08) 0%, rgba(118, 75, 162, 0.08) 100%);
+  border: 1px solid rgba(102, 126, 234, 0.2);
+  border-radius: 12px;
+  animation: slideInUp 0.3s ease-out;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+}
+
+.voice-preview-header {
+  display: flex;
+  align-items: center;
+  margin-bottom: 0.75rem;
+}
+
+.voice-preview-label {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #667eea;
+  letter-spacing: 0.3px;
+}
+
+.voice-preview-content {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.voice-preview-text {
+  padding: 0.875rem;
+  background: white;
+  border-radius: 8px;
+  font-size: 0.95rem;
+  line-height: 1.6;
+  color: #213547;
+  min-height: 60px;
+  max-height: 200px;
+  overflow-y: auto;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  word-wrap: break-word;
+}
+
+.voice-preview-text::-webkit-scrollbar {
+  width: 6px;
+}
+
+.voice-preview-text::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.05);
+  border-radius: 3px;
+}
+
+.voice-preview-text::-webkit-scrollbar-thumb {
+  background: rgba(102, 126, 234, 0.3);
+  border-radius: 3px;
+}
+
+.voice-preview-actions {
+  display: flex;
+  gap: 0.75rem;
+  justify-content: flex-end;
+}
+
+.voice-confirm-btn,
+.voice-cancel-btn {
+  padding: 0.6rem 1.25rem;
+  border: none;
+  border-radius: 8px;
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.voice-confirm-btn {
+  background: linear-gradient(135deg, #42b883 0%, #35a372 100%);
+  color: white;
+  box-shadow: 0 2px 8px rgba(66, 184, 131, 0.3);
+}
+
+.voice-confirm-btn:hover:not(:disabled) {
+  transform: translateY(-2px) scale(1.02);
+  box-shadow: 0 4px 12px rgba(66, 184, 131, 0.4);
+}
+
+.voice-confirm-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.voice-cancel-btn {
+  background: rgba(158, 158, 158, 0.2);
+  color: #616161;
+  border: 1px solid rgba(158, 158, 158, 0.3);
+}
+
+.voice-cancel-btn:hover:not(:disabled) {
+  background: rgba(158, 158, 158, 0.3);
+  transform: translateY(-2px);
+}
+
+.voice-cancel-btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
 }
@@ -1389,40 +2122,49 @@ const handleFileSelect = async (event: Event) => {
 
 .chat-input {
   flex: 1;
-  padding: 0.75rem 1rem;
-  border: 2px solid rgba(102, 126, 234, 0.2);
-  border-radius: 16px;
-  font-family: inherit;
-  font-size: 0.9rem;
+  padding: 1rem 1.25rem;
+  border: none;
+  border-radius: 28px;
+  font-family: 'Poppins', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 1rem;
+  font-weight: 400;
   resize: none;
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  background: white;
-  line-height: 1.5;
-  min-height: 44px;
+  background: transparent;
+  backdrop-filter: blur(10px);
+  line-height: 1.6;
+  min-height: 50px;
   max-height: 120px;
   position: relative;
   overflow-y: auto;
+  color: rgba(70, 80, 100, 0.85);
+  letter-spacing: 0.4px;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
 }
 
 .chat-input:focus {
   outline: none;
-  border-color: #667eea;
-  box-shadow: 0 0 0 4px rgba(102, 126, 234, 0.15), 0 4px 20px rgba(102, 126, 234, 0.1);
-  background: #fafafa;
+  border: none;
+  box-shadow: none;
+  background: transparent;
+  backdrop-filter: blur(15px);
   transform: translateY(-1px);
+  color: rgba(60, 70, 90, 0.9);
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
 }
 
 .chat-input::placeholder {
   transition: opacity 0.3s;
+  color: rgba(120, 130, 150, 0.7);
+  opacity: 0.8;
+  font-weight: 300;
+  letter-spacing: 0.5px;
+  font-style: italic;
 }
 
 .chat-input:focus::placeholder {
   opacity: 0.5;
-}
-
-.chat-input::placeholder {
-  color: #999;
-  opacity: 0.7;
+  color: rgba(130, 140, 160, 0.6);
 }
 
 .send-button {

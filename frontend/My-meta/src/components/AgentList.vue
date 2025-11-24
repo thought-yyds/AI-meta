@@ -40,12 +40,6 @@ const tools = ref<Tool[]>([
     icon: '📄',
   },
   {
-    name: 'meeting_summary',
-    displayName: '会议纪要',
-    description: '创建会议纪要 Markdown 文件，包含要点、决策和行动项',
-    icon: '📝',
-  },
-  {
     name: 'retrieval',
     displayName: '本地检索',
     description: '在本地文本文件中进行轻量级词法搜索，返回匹配结果',
@@ -74,6 +68,66 @@ const tools = ref<Tool[]>([
     displayName: '日历事件',
     description: '创建日历事件文件（iCal 格式），可导入到日历应用',
     icon: '📅',
+  },
+  {
+    name: 'create_meeting',
+    displayName: '创建会议',
+    description: '创建新的会议。支持腾讯会议、Zoom、Microsoft Teams 等常见会议应用',
+    icon: '🎬',
+  },
+  {
+    name: 'join_meeting',
+    displayName: '加入会议',
+    description: '加入现有会议。支持通过会议ID、会议链接等方式加入会议',
+    icon: '🚪',
+  },
+  {
+    name: 'capture_slide_content',
+    displayName: '捕获幻灯片',
+    description: '专门捕获会议PPT/共享屏幕内容。使用OCR提取屏幕上的文字，并保存截图',
+    icon: '📸',
+  },
+  {
+    name: 'capture_specific_region',
+    displayName: '捕获区域',
+    description: '捕获屏幕特定区域（如白板、讨论区）。用于抓取重点讨论内容',
+    icon: '🎯',
+  },
+  {
+    name: 'monitor_screen_changes',
+    displayName: '监控屏幕变化',
+    description: '持续监控屏幕变化，检测幻灯片翻页或内容更新。当检测到变化时自动捕获',
+    icon: '👁️',
+  },
+  {
+    name: 'auto_capture_important_regions',
+    displayName: '自动捕获重要区域',
+    description: '自动识别并截图屏幕上的重要区域（如PPT、白板、聊天区、讨论区等）',
+    icon: '🤖',
+  },
+  {
+    name: 'extract_structured_agenda',
+    displayName: '提取结构化议程',
+    description: '从OCR文本中提取结构化议程。返回议程项列表，包含议程项名称、预计时间、主讲人等信息',
+    icon: '📋',
+  },
+  {
+    name: 'identify_action_items',
+    displayName: '识别行动项',
+    description: '识别讨论中的行动项和责任人。返回行动项列表，包含具体行动、负责人、截止时间等信息',
+    icon: '✅',
+  },
+  {
+    name: 'extract_decisions',
+    displayName: '提取决策',
+    description: '提取会议中的决策和结论。返回决策列表，包含决策内容、依据、影响等信息',
+    icon: '💡',
+  },
+  {
+    name: 'summarize_key_points',
+    displayName: '总结要点',
+    description: '总结会议核心要点。返回包含关键决策、行动项、开放问题等结构化摘要',
+    icon: '📝',
   },
 ]);
 </script>
