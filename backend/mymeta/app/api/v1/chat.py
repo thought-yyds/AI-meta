@@ -62,11 +62,39 @@ def chat(
         MessageModel.session_id == session.id
     ).order_by(MessageModel.created_at.asc()).all()
     
+    # Get the latest summary if exists (to compress old history)
+    from app.models.models import Summary as SummaryModel
+    latest_summary = db.query(SummaryModel).filter(
+        SummaryModel.session_id == session.id
+    ).order_by(SummaryModel.created_at.desc()).first()
+    
     # Format conversation history for agent
-    conversation_history = [
-        {"role": msg.role, "content": msg.content}
-        for msg in previous_messages
-    ]
+    # Strategy: Use summary for old messages, keep recent messages (last 5 exchanges = 10 messages)
+    conversation_history = []
+    
+    if latest_summary:
+        conversation_history.append({
+            "role": "system",
+            "content": f"之前的对话总结：{latest_summary.content}"
+        })
+        summary_cutoff = latest_summary.created_at
+        if summary_cutoff:
+            filtered_messages = [
+                msg for msg in previous_messages
+                if msg.created_at and msg.created_at > summary_cutoff
+            ]
+        else:
+            filtered_messages = previous_messages
+        recent_messages = filtered_messages[-10:]
+    else:
+        recent_messages = previous_messages[-10:]
+    
+    # Add recent messages
+    for msg in recent_messages:
+        conversation_history.append({
+            "role": msg.role,
+            "content": msg.content
+        })
     
     # Set working directory to user's uploads directory
     # This allows file_parser tool to find uploaded files

@@ -1,4 +1,4 @@
-"""个人AI助手Agent，专注于办公会议等场景，通过工具调用帮助用户完成日常工作任务。"""
+"""个人AI助手Agent，专注于个人效率与知识管理，通过工具调用完成日常任务。"""
 
 from __future__ import annotations
 
@@ -19,47 +19,9 @@ except ImportError:
     from llm.chat_model import DoubaoChatModel
     from llm.client import DoubaoService, DoubaoServiceError
 try:
-    from tools import (
-        AutoCaptureImportantRegionsTool,
-        CalendarTool,
-        CaptureSlideContentTool,
-        CaptureSpecificRegionTool,
-        CreateMeetingTool,
-        EmailSenderTool,
-        ExtractDecisionsTool,
-        ExtractStructuredAgendaTool,
-        FileParserTool,
-        GitHubRepoTool,
-        IdentifyActionItemsTool,
-        JoinMeetingTool,
-        LocalRetrievalTool,
-        MonitorScreenChangesTool,
-        SummarizeKeyPointsTool,
-        TavilyWebTool,
-        ToolContext,
-        ToolExecutionError,
-    )
+    from tools import LocalMCPTool, ToolContext, ToolExecutionError
 except ImportError:
-    from ..tools import (
-        AutoCaptureImportantRegionsTool,
-        CalendarTool,
-        CaptureSlideContentTool,
-        CaptureSpecificRegionTool,
-        CreateMeetingTool,
-        EmailSenderTool,
-        ExtractDecisionsTool,
-        ExtractStructuredAgendaTool,
-        FileParserTool,
-        GitHubRepoTool,
-        IdentifyActionItemsTool,
-        JoinMeetingTool,
-        LocalRetrievalTool,
-        MonitorScreenChangesTool,
-        SummarizeKeyPointsTool,
-        TavilyWebTool,
-        ToolContext,
-        ToolExecutionError,
-    )
+    from ..tools import LocalMCPTool, ToolContext, ToolExecutionError
 logger = logging.getLogger(__name__)
 
 
@@ -94,7 +56,7 @@ class AgentResult:
 
 
 class Agent:
-    """个人AI助手，专注于办公会议等场景，通过工具调用帮助用户完成日常工作任务。"""
+    """个人AI助手，聚焦个人效率、信息整理与知识管理等日常任务。"""
 
     def __init__(
         self,
@@ -115,37 +77,14 @@ class Agent:
         self._chat_model_with_tools = self._chat_model.bind_tools(self.tools)
         self._tool_names = self._get_tool_names()
         self._tool_descriptions = self._get_tool_descriptions()
+        self._mcp_subtools = self._get_mcp_subtools()
         self._system_message = self._build_system_message()
 
     def _default_tools(self) -> List[BaseTool]:
         working_dir = self.config.working_dir
-        tools = [
-            FileParserTool(context=ToolContext(working_dir=working_dir)),
-            LocalRetrievalTool(context=ToolContext(working_dir=working_dir)),
-            TavilyWebTool(context=ToolContext(working_dir=working_dir)),
-            GitHubRepoTool(context=ToolContext(working_dir=working_dir)),
-            EmailSenderTool(context=ToolContext(working_dir=working_dir)),
-            CalendarTool(context=ToolContext(working_dir=working_dir)),
+        return [
+            LocalMCPTool(context=ToolContext(working_dir=working_dir)),
         ]
-        # Add meeting tools if Windows automation is available
-        try:
-            # Add meeting tools that depend on WindowsMCP (they invoke MCP internally)
-            tools.append(CreateMeetingTool(context=ToolContext(working_dir=working_dir)))
-            tools.append(JoinMeetingTool(context=ToolContext(working_dir=working_dir)))
-            # Add meeting capture tools
-            tools.append(CaptureSlideContentTool(context=ToolContext(working_dir=working_dir)))
-            tools.append(CaptureSpecificRegionTool(context=ToolContext(working_dir=working_dir)))
-            tools.append(AutoCaptureImportantRegionsTool(context=ToolContext(working_dir=working_dir)))
-            tools.append(MonitorScreenChangesTool(context=ToolContext(working_dir=working_dir)))
-            # Add content parser tools
-            tools.append(ExtractStructuredAgendaTool(context=ToolContext(working_dir=working_dir)))
-            tools.append(IdentifyActionItemsTool(context=ToolContext(working_dir=working_dir)))
-            tools.append(ExtractDecisionsTool(context=ToolContext(working_dir=working_dir)))
-            tools.append(SummarizeKeyPointsTool(context=ToolContext(working_dir=working_dir)))
-        except Exception:
-            # Silently skip if WindowsMCP.Net is not available
-            pass
-        return tools
 
     def _get_tool_names(self) -> str:
         return ", ".join([tool.name for tool in self.tools])
@@ -155,6 +94,16 @@ class Agent:
         for tool in self.tools:
             descriptions.append(f"- 工具名：{tool.name}\n  功能：{tool.description}")
         return "\n".join(descriptions)
+
+    def _get_mcp_subtools(self) -> List[Dict[str, str]]:
+        subtools: List[Dict[str, str]] = []
+        for tool in self.tools:
+            if hasattr(tool, "list_available_tools"):
+                try:
+                    subtools.extend(tool.list_available_tools())
+                except Exception:  # noqa: BLE001
+                    logger.debug("Failed to list MCP sub-tools from %s", tool.name, exc_info=True)
+        return subtools
 
     @property
     def llm_service(self) -> DoubaoService:
@@ -167,59 +116,54 @@ class Agent:
 
     def _build_system_message(self) -> SystemMessage:
         prompt = (
-            "你是一个个人AI助手，专门帮助用户处理日常工作，特别是会议相关的场景。\n"
-            "你是用户的贴心工作伙伴，能够理解用户的需求，主动使用各种工具来完成任务，提供有价值的帮助。\n"
+            "你是一个个人AI助手，帮助用户完成个人项目、资料整理、在线调研与沟通协作任务。\n"
+            "要主动思考、善用工具，并输出结构化、可执行的结果。\n"
             "\n"
             "## 核心定位\n"
             "\n"
-            "作为个人AI助手，你的主要职责包括：\n"
-            "- 理解用户的办公和会议需求\n"
-            "- 主动使用工具收集信息、处理文件、发送邮件等\n"
-            "- 提供清晰、有用的结果和建议\n"
-            "- 帮助用户提高工作效率\n"
+            "作为个人助手，你的主要职责包括：\n"
+            "- 理解用户的真实需求、时间安排和完成标准\n"
+            "- 熟练使用文件解析、本地检索、网络搜索、GitHub、邮件与日历等工具\n"
+            "- 结合工具结果给出结论、分析和后续建议，帮助用户提升效率\n"
             "\n"
             "## 主要应用场景\n"
             "\n"
-            "### 1. 会议相关\n"
-            "- 会议纪要总结和整理\n"
-            "- 会议文件解析和提取关键信息\n"
-            "- 会议资料检索和准备\n"
-            "- 会议邮件发送和通知\n"
+            "### 1. 信息整理与知识管理\n"
+            "- 解析本地文档、提炼摘要或结构化要点\n"
+            "- 在个人知识库中检索历史内容\n"
+            "- 将零散信息整理成计划、行动列表或表格\n"
             "\n"
-            "### 2. 信息收集与处理\n"
-            "- 使用网络搜索获取实时信息\n"
-            "- 解析和处理各种办公文件（PDF、Word、Excel等）\n"
-            "- 从代码仓库中查找相关代码和文档\n"
-            "- 从本地知识库中检索历史资料\n"
+            "### 2. 调研与学习支持\n"
+            "- 使用 Tavily 进行实时搜索，整合多来源信息\n"
+            "- 浏览 GitHub 仓库，定位代码示例或项目状态\n"
+            "- 总结学习材料、比较方案并提出建议\n"
             "\n"
-            "### 3. 日常工作支持\n"
-            "- 文件内容提取和分析\n"
-            "- 邮件发送和管理\n"
-            "- 信息整理和格式化\n"
-            "- 快速查找和检索\n"
+            "### 3. 个人效率与沟通\n"
+            "- 起草并发送邮件、日常更新或通知\n"
+            "- 生成日历事件，帮助安排个人行程\n"
+            "- 根据上下文提供下一步行动建议\n"
             "\n"
             "## 工作原则\n"
             "\n"
             "1. **主动理解需求**：\n"
-            "   - 仔细理解用户的任务和需求\n"
-            "   - 根据上下文判断最合适的处理方式\n"
-            "   - 如果信息不足，主动收集相关信息\n"
+            "   - 澄清目标、输入和输出格式\n"
+            "   - 信息不足时说明缺口或建议补充方式\n"
             "\n"
             "2. **工具调用规范**：\n"
-            "   - 必须通过函数调用触发工具，不要自行编造工具名称\n"
-            "   - 每次调用工具时，确保提供完整且合法的JSON参数\n"
-            "   - 根据任务需求，合理选择和组合使用工具\n"
+            "   - 仅调用提供的工具，且使用合法 JSON 参数\n"
+            "   - 调用前说明目的，调用后结合结果继续推理\n"
             "\n"
             "3. **结果输出**：\n"
-            "   - 将工具执行结果整理成清晰、结构化的格式\n"
-            "   - 使用中文输出，语言自然友好\n"
-            "   - 提供有价值的见解和建议，而不仅仅是原始数据\n"
-            "   - 针对会议等场景，提供便于理解和使用的总结\n"
+            "   - 结构化输出，突出结论、依据和下一步\n"
+            "   - 使用中文，语言自然友好，可附带表格/列表\n"
             "\n"
             "4. **效率优先**：\n"
-            "   - 可以多次调用工具，但要有明确目的\n"
-            "   - 当收集到足够信息时，及时停止并给出结果\n"
-            "   - 避免不必要的重复操作\n"
+            "   - 工具调用应有明确目的，避免重复操作\n"
+            "   - 收集到足够信息后及时给出答案\n"
+            "\n"
+            "5. **任务独立性**：\n"
+            "   - 对话历史仅用于理解背景，当前回复只解决最新任务\n"
+            "   - 不要重复执行旧任务，除非用户明确要求复用\n"
             "\n"
             "## 可用工具\n"
             "\n"
@@ -227,16 +171,26 @@ class Agent:
             "\n"
             "{tools}\n"
             "\n"
+            "{mcp_tools_section}"
             "重要提示：\n"
-            "- 你是用户的个人助手，要站在用户的角度思考问题\n"
-            "- 主动帮助用户完成工作，提供有价值的输出\n"
-            "- 对于会议场景，要特别关注信息的准确性和可读性\n"
-            "- 当任务完成时，及时给出清晰的结果，不要过度调用工具\n"
+            "- 站在用户视角，给出真正可执行的建议\n"
+            "- 如果需要额外信息，先解释缺口再提问\n"
+            "- 任务完成后总结重点和后续建议\n"
         ).format(
             tool_names=self._tool_names,
             tools=self._tool_descriptions,
+            mcp_tools_section=self._render_mcp_section(),
         )
         return SystemMessage(content=prompt)
+
+    def _render_mcp_section(self) -> str:
+        if not self._mcp_subtools:
+            return ""
+        lines = []
+        for tool in self._mcp_subtools:
+            description = tool.get("description") or ""
+            lines.append(f"- {tool.get('name')}: {description}")
+        return "### MCP 子工具\n" + "\n".join(lines) + "\n\n"
 
     def run(self, task: str, *, context: Optional[str] = None, conversation_history: Optional[List[Dict[str, str]]] = None) -> AgentResult:
         """
@@ -273,13 +227,20 @@ class Agent:
             for msg in conversation_history:
                 role = msg.get("role", "user")
                 content = msg.get("content", "")
-                if role == "user":
+                # Handle system messages (e.g., summaries)
+                if role == "system":
+                    messages.append(SystemMessage(content=content))
+                elif role == "user":
                     messages.append(HumanMessage(content=content))
                 elif role == "assistant":
                     messages.append(AIMessage(content=content))
         
-        # Add current user message
-        messages.append(HumanMessage(content=user_input))
+        # Add current user message with explicit instruction to avoid repeating past actions
+        current_task_prompt = (
+            f"{user_input}\n\n"
+            "重要提示：请只处理上述当前任务，不要重复执行对话历史中已经完成的操作。"
+        )
+        messages.append(HumanMessage(content=current_task_prompt))
 
         reminder_added = False
         for iteration in range(self.config.max_iterations):

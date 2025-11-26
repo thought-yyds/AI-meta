@@ -327,21 +327,17 @@ const getStatusLabel = (status: string) => {
 const getToolDisplayName = (toolName: string): string => {
   const toolNames: Record<string, string> = {
     'file_parser': '文件解析',
-    'retrieval': '本地检索',
     'web_search': '网络搜索',
-    'github_mcp_tool': 'GitHub 仓库',
-    'send_email': '邮件发送',
+    'github_repo_info': 'GitHub 仓库信息',
+    'github_search_code': 'GitHub 代码搜索',
+    'send_mail': 'QQ 邮件发送',
+    'list_recent_mail': '最近邮件',
+    'read_mail': '读取邮件',
     'add_calendar_event': '日历事件',
-    'create_meeting': '创建会议',
-    'join_meeting': '加入会议',
-    'capture_slide_content': '捕获幻灯片',
-    'capture_specific_region': '捕获区域',
-    'auto_capture_important_regions': '自动捕获重要区域',
-    'monitor_screen_changes': '监控屏幕变化',
-    'extract_structured_agenda': '提取结构化议程',
-    'identify_action_items': '识别行动项',
-    'extract_decisions': '提取决策',
-    'summarize_key_points': '总结要点',
+    'memory_search': '记忆检索',
+    'memory_refresh': '记忆刷新',
+    'plan_trip': '行程规划',
+    'poi_search': '景点检索',
   };
   return toolNames[toolName] || toolName;
 };

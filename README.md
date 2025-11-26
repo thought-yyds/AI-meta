@@ -1,38 +1,84 @@
-# AI Meta Chat Application
+## 项目简介：个人效率与知识管理 Agent
 
-一个结合 FastAPI、Vue 3、Doubao LLM、WindowsMCP 桌面自动化工具以及自研 Agent 工具链的智能聊天应用，提供会话记忆、任务拆解、桌面操控与多步推理的完整体验。
+这是一个围绕“**个人效率与知识管理**”打造的本地个人 Agent 系统：
+
+- 后端使用 **FastAPI + 自研 LangChain Agent**，前端使用 **Vue 3 + TypeScript**。
+- Agent 基于 **Doubao LLM**，通过统一的 **FastMCP 工具架构** 调用本地/在线能力。
+- 支持多轮对话、会话记忆、工具链编排，让你像和“私人助理”聊天一样完成工作。
+
+前端提供完整的聊天界面、会话列表和任务洞察面板，后端记录每一步推理与工具调用，方便排查和展示整体推理过程。
+
+## 我的个人 Agent 能做什么？
+
+- **信息收集与调研**
+  - 使用 Tavily 网搜整合多源信息，做资料查询、方案对比、背景调研。
+  - 解析本地文档（PDF / Word / PPT / Markdown 等），帮你提炼摘要、生成大纲或对比多个文件内容。
+  - 从 GitHub 仓库检索代码、README、Issue，辅助代码阅读与问题排查。
+
+- **个人知识与长期记忆**
+  - 将历史对话存入数据库，并定期用 **FAISS + Sentence Transformers** 建立向量索引。
+  - 提供 `memory_search`：按语义和关键词混合检索，像“查笔记”一样查以前聊过的内容。
+  - 支持 `memory_refresh`：通过定时任务刷新向量索引，让记忆随对话增长而更新。
+
+- **日常事务与时间管理**
+  - 使用日历工具生成 iCal 事件（会议、提醒、行程等），可导入到常用日历应用。
+  - 借助高德地图（Amap）进行行程规划和地点搜索：
+    - `plan_trip`：按照天数和时间段生成详细行程安排。
+    - `poi_search`：查询景点/餐厅/酒店等信息。
+
+- **邮件与沟通自动化**
+  - 专门的 QQ 邮箱 FastMCP 服务：
+    - 发送普通/HTML 邮件，支持内嵌图片、附件。
+    - 列出最近邮件、搜索邮件、读取正文、下载附件。
+    - 管理邮件（标记已读/未读、移动、删除等）。
+  - 后续可以很容易扩展到其他邮箱服务。
+
+- **多步推理与多工具协同**
+  - Agent 使用 ReAct 风格循环：**思考 → 选工具 → 执行 → 观察 → 再思考**。
+  - 支持在一次任务中串联多个工具（先查资料 → 再解析文件 → 再写邮件/生成行程）。
+  - 内置“**任务独立性**”原则：历史对话只作背景，不会重复执行已经完成的老任务。
 
 ## 项目优势
 
 ![AI Meta 聊天界面](img/image.png)
 
-- 智能会话记忆：每 10 条消息自动触发总结，历史上下文+摘要一并存储，既保留细节又压缩上下文长度。
-- 插件化 Agent：沿用 `src/` 下的工具链与 Doubao LLM，前端可视化地展示步骤和结果，方便排障与演示。
-- 桌面自动化：集成 WindowsMCP，支持会议创建/加入、屏幕内容提取等跨应用操作，拓展真实办公场景。
-- 双端可观测：后端记录所有推理步骤，前端 TaskInsight 面板提供“用户/开发者”双视角，结果透明可追溯。
-- 易扩展易部署：FastAPI + Vue3 + SQLite 的轻量组合，配套 `.env`、初始化脚本、WindowsMCP 配置指南，落地成本低。
+- **专注个人使用场景**：从“办公/会议助手”转为“个人效率 + 知识管理助手”，任务覆盖调研、行程、邮件、日历、过去对话记忆等。
+- **统一工具架构（FastMCP）**：所有能力通过本地 FastMCP 服务提供，由单个 `local_mcp_tool` 统一调度，结构清晰、易于扩展。
+- **强大的记忆系统**：数据库 + 摘要 + FAISS 向量检索，多层次记忆，既压缩上下文，又能按需“翻旧账”。
+- **前后端可观测性**：后端保存每一步工具调用和模型输出；前端 TaskInsight 面板以时间线形式展示推理过程，方便调试和演示。
+- **工程化落地友好**：FastAPI + Vue3 + 标准依赖文件，配合初始化脚本和 Docker 配置，适合部署到个人服务器或本地环境。
 
-## 功能特性
+## 功能一览
 
 - ✅ 用户认证（注册/登录）
 - ✅ 会话管理（创建、查看、删除会话）
-- ✅ 实时聊天（与 AI Agent 对话）
-- ✅ 消息历史记录
-- ✅ 自动记忆总结（每 10 条消息自动生成总结）
+- ✅ 实时聊天（与个人 Agent 对话）
+- ✅ 消息历史记录与自动总结（每 10 条消息生成摘要）
 - ✅ 手动生成总结
+- ✅ 多工具协同调用（网搜 / 文档解析 / GitHub / 邮件 / 日历 / 地图 / 记忆）
+- ✅ 长期记忆检索（FAISS + sentence-transformers）
 
-## 技术栈
+## 技术栈（简要）
 
-### 后端
-- FastAPI
-- SQLAlchemy (SQLite)
-- JWT 认证
-- 集成现有的 Agent 和 LLM 服务
+- **后端**
+  - FastAPI、Uvicorn
+  - SQLAlchemy（默认 SQLite，可配置 MySQL 等）
+  - JWT 认证
+  - 自研 LangChain Agent（`src/agents/Agent.py`）+ Doubao LLM
 
-### 前端
-- Vue 3 + TypeScript
-- Vite
-- 响应式设计
+- **前端**
+  - Vue 3 + TypeScript
+  - Vite
+  - 响应式界面 + 分栏布局（会话列表 / 聊天区 / TaskInsight）
+
+- **Agent 与工具**
+  - LangChain `BaseTool` + 自定义 `ContextAwareTool`
+  - 统一的 `LocalMCPTool` 负责与本地 FastMCP 服务通信
+
+- **记忆与检索**
+  - FAISS
+  - sentence-transformers
+  - APScheduler（定时刷新记忆索引、邮件任务等）
 
 ## 项目结构
 
@@ -50,6 +96,19 @@ AI-meta/
 │   └── My-meta/                 # Vue 前端应用
 └── src/                         # 现有的 Agent 和 LLM 代码
 ```
+
+## 工具架构（FastMCP）
+
+- 所有能力都以 FastMCP 服务形式提供，入口位于 `src/tools/`：
+  - `parser.py`：`file_parser`
+  - `web.py`：`web_search`
+  - `calendar.py`：`add_calendar_event`
+  - `github.py`：`github_repo_info` / `github_search_code`
+  - `QMailTool.py`：`send_mail`、`list_recent_mail`、`read_mail` 等邮件工具
+- `memory.py`：`memory_search`（向量 + 关键词混合检索历史记忆）、`memory_refresh`
+- `map.py`：`plan_trip`、`poi_search`（基于高德地图 API 制定行程、搜索 POI）
+- LangChain 侧只有一个 `local_mcp_tool`，通过 `tool_name + arguments` 调用上述 FastMCP 服务，Agent 会在系统提示中列出全部子工具。
+- 服务由 `local_mcp_tool` 自动按需启动并通过 MCP STDIO 通信，无需单独运行；仅需确保相关依赖（tavily、python-docx、python-pptx、PyPDF2、faiss-cpu、sentence-transformers 等）已安装，并设置必要的环境变量（如 `TAVILY_API_KEY`、`GITHUB_TOKEN`、`PERSONAL_AGENT_WORKDIR`、`MEMORY_DB_URL`、`AMAP_API_KEY`）。
 
 ## 安装和运行
 
@@ -206,112 +265,41 @@ python test_connection.py
 - **后端**：在 `app/api/v1/` 下添加新的路由文件，在 `app/services/` 下添加业务逻辑。
 - **前端**：在 `src/components/` 下添加新组件，在 `src/services/api.ts` 中添加 API 调用。
 
-## WindowsMCP 配置
+## QQ 邮箱 FastMCP 服务（可选）
 
-WindowsMCP 工具提供了 Windows 桌面自动化能力。配置方式有以下几种：
+`src/tools/QMailTool.py` 基于 FastMCP 提供了一套 QQ 邮箱自动化能力，可与主 Agent 并行使用：
 
-### 方式 1：全局安装（推荐）
+- 发送 plain/HTML/内嵌图片邮件、批量发送、定时发送
+- 管理收件箱：列文件夹、搜索、读取正文、下载附件、标记已读/未读、移动、删除
+- 结构化返回：统一的 Pydantic 校验与错误处理，便于二次封装
 
-使用 .NET 工具全局安装 WindowsMCP.Net：
+### 环境变量
+
+在根目录创建或更新 `.env`：
+
+```
+QQ_MAIL_ADDRESS=example@qq.com
+QQ_MAIL_AUTH_CODE=你的SMTP授权码
+QQ_MAIL_IMAP_SERVER=imap.qq.com
+QQ_MAIL_SMTP_SERVER=smtp.qq.com
+QQ_MAIL_ATTACH_DIR=./attachments
+```
+
+> QQ 邮箱需在“账户设置 > POP3/IMAP/SMTP”里开启服务并生成授权码。
+
+### 启动服务
 
 ```bash
-dotnet tool install --global WindowsMCP.Net
+python src/tools/QMailTool.py
 ```
 
-安装后，工具会自动通过 `dotnet tool run` 命令找到并启动。
-
-### 方式 2：配置系统 PATH
-
-如果 WindowsMCP.Net 已安装但不在系统 PATH 中：
-
-1. **找到可执行文件位置**：
-   - 全局安装通常在：`%USERPROFILE%\.dotnet\tools\Windows-MCP.Net.exe`
-   - 例如：`C:\Users\Lenovo\.dotnet\tools\Windows-MCP.Net.exe`
-   - 或通过 `where Windows-MCP.Net` 查找
-
-2. **添加到系统 PATH**：
-   - 打开"系统属性" → "高级" → "环境变量"
-   - 在"系统变量"中找到 `Path`，点击"编辑"
-   - 添加包含 `WindowsMCP.Net.exe` 的目录路径
-   - 重启终端或 IDE
-
-### 方式 3：使用完整路径（无需配置 PATH）
-
-如果不想修改系统 PATH，可以直接指定可执行文件的完整路径：
-
-**在 `.env` 文件中配置**：
-
-```env
-# 方式 A：使用完整路径（Windows 路径，.exe 扩展名可选）
-WINDOWS_MCP_COMMAND=C:\Users\Lenovo\.dotnet\tools\Windows-MCP.Net
-# 或
-WINDOWS_MCP_COMMAND=C:\Users\Lenovo\.dotnet\tools\Windows-MCP.Net.exe
-
-# 方式 B：使用完整路径（相对路径，从项目根目录）
-WINDOWS_MCP_COMMAND=./tools/Windows-MCP.Net.exe
-
-# 可选：自定义参数（JSON 格式）
-WINDOWS_MCP_ARGS=["--yes"]
-```
-
-> **注意**：代码会自动处理 `.exe` 扩展名，如果路径不存在，会自动尝试添加 `.exe` 扩展名。
-
-**在代码中配置**：
-
-```python
-from src.tools.windows_mcp import WindowsMCPClient
-
-# 使用完整路径（.exe 扩展名可选）
-client = WindowsMCPClient(
-    command=r"C:\Users\Lenovo\.dotnet\tools\Windows-MCP.Net",
-    args=[]  # 如果可执行文件不需要额外参数
-)
-# 或
-client = WindowsMCPClient(
-    command=r"C:\Users\Lenovo\.dotnet\tools\Windows-MCP.Net.exe",
-    args=[]
-)
-```
-
-### 验证配置
-
-运行以下命令测试 WindowsMCP 是否正常工作：
-
-```python
-from src.tools.windows_mcp import WindowsMCPClient
-
-try:
-    client = WindowsMCPClient()
-    tools = client.list_tools_json()
-    print("WindowsMCP 配置成功！")
-    print(f"可用工具：{tools}")
-except Exception as e:
-    print(f"配置失败：{e}")
-```
-
-### 常见问题
-
-1. **找不到命令**：
-   - 检查是否已安装：`dotnet tool list -g`
-   - 检查 PATH 是否包含工具目录
-   - 或使用完整路径方式
-
-2. **权限问题**：
-   - 确保可执行文件有执行权限
-   - Windows 可能需要以管理员身份运行
-
-3. **路径格式**：
-   - Windows 路径使用反斜杠 `\` 或正斜杠 `/`
-   - 建议使用原始字符串 `r"C:\path\to\file.exe"` 或双反斜杠 `"C:\\path\\to\\file.exe"`
-   - 可执行文件名是 `Windows-MCP.Net`（带连字符），不是 `WindowsMCP.Net`
-   - `.exe` 扩展名可选，代码会自动处理
+脚本会启动 FastMCP 服务，默认使用内存 JobStore 的 APScheduler 支持定时发送。你可以将其注册到 MCP Hub 或直接通过自定义客户端调用。
 
 ## 注意事项
 
 - 确保后端服务运行在 `http://localhost:8000`
 - 确保前端可以访问后端 API（检查 CORS 配置）
 - 需要配置 LLM 服务的 API Key（DoubaoService）
-- WindowsMCP 需要 .NET 运行时环境
 
 ## License
 
